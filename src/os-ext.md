@@ -19,6 +19,9 @@ In addition to standard Segment Types, and Arch-Specific ones, the following seg
 | Name                    | Value        | Description                       |
 |:-----------------------:|--------------|-----------------------------------|
 | `PT_LOOS`               | `0x60000000` | Lower bound for OS Specific Segment types |
+| `PT_LILIUM_SIGN_CERT`   | `0x60010000` | Certificate used for signing (Reserved). |
+| `PT_LILIUM_SIGNATURE`   | `0x60010001` | ELF File Signature (Reserved). |
+| `PT_LILIUM_SIGN_TIME`   | `0x60010002` | 8-byte timestamp (seconds) the file was signed (Reserved). |
 | `PT_GNU_EH_FRAME`       | `0x6474e550` | Recognized for compatibility with GNU and LLVM toolchains. |
 | `PT_GNU_STACK`          | `0x6474e551` | Recognized for compatibility with GNU and LLVM toolchains. Ignored but validated like `PT_LOAD` (must not be `PF_W + PF_X`) |
 | `PT_GNU_RELRO`          | `0x6474e552` | Recognized for compatibility with GNU and LLVM toolchains. |
@@ -31,6 +34,9 @@ In addition to standard Segment Types, and Arch-Specific ones, the following seg
 | `PT_LILIUM_HIUSI`       | `0x6FFFFFFF` | Highest segment type reserved for the USI impl[^1] |
 | `PT_HIOS`               | `0x6FFFFFFF` | Upper bound for OS Specific Segment types |
 
+### Kernel Range
+
+The program types between `PT_LILIUM_LOKERNEL` and `PT_LILIUM_HIKERNEL` are for use in kernel modules (and the Lilium kernel itself). They are ignored or rejected when loading a userspace program or shared object. Program types between `PT_LILIUM_LOKSPECIFIC` and `PT_LILIUM_HIKERNEL` are not defined by the document and have kernel-specific meaning.
 
 [^1]: See [USI Compatibility][segment-usi-compat] for details on how to use this segment portably (between USI impls)
 
