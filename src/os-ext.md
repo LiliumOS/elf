@@ -10,6 +10,7 @@ The default loader is `/lib/ld-lilium-<arch>.so`.
 
 The Lilium Kernel and Default USI loader impose the following constraints on objects loaded:
 * Any Dynamically linked executable (executable a `PT_INTERP` segment) must be Position Independent (either PIE or full PIC). This is enforced by the loader.
+* Any external symbol must be Valid UTF-8,
 * Any `PT_LOAD` or `PT_GNU_STACK` segment must not set both `PF_W` and `PF_X`. 
 
 ## OS Specific Program Header Types
@@ -27,7 +28,7 @@ In addition to standard Segment Types, and Arch-Specific ones, the following seg
 | `PT_GNU_RELRO`          | `0x6474e552` | Recognized for compatibility with GNU and LLVM toolchains. |
 | `PT_LILIUM_LOKERNEL`    | `0x6FE00000` | Lowest segment type for use by the Lilium Kernel|
 | `PT_LILIUM_KMODULE`     | `0x6FE00000` | Segment that maps to the kernel module info |
-| `PT_LILIUM_LOKSPECIFIC` | `0x6FEFFF00` | Lowest segment type defined by the specific kernel |
+| `PT_LILIUM_LOKSPECIFIC` | `0x6FEF0000` | Lowest segment type defined by the specific kernel |
 | `PT_LILIUM_HIKERNEL`    | `0x6FEFFFFF` | Highest segment type for use by the Lilium Kernel |
 | `PT_LILIUM_USICOMPAT`   | `0x6FF00000` | USI Compatibility support |
 | `PT_LILIUM_LOUSI`       | `0x6FF00001` | Lowest segment type reserved for the USI impl[^1] |
@@ -105,13 +106,15 @@ Dynamic tags between `DT_LOOS` and `DT_LILIUM_LOKERNEL` obey the rule set by `DT
 | Name                           | Value        | `d_un`  | Executable | Shared Object | Description                         |
 |:------------------------------:|--------------|---------|------------|---------------|-------------------------------------|
 | `DT_LOOS`                      | `0x6000000D` | N/A     | N/A        | N/A           | Lower bound for OS Specific dynamic tags |
+| `DT_LILIUM_HASHENT`            | `0x6000000D` | `d_val` | Optional[^5]| Optional[^5]  | Size of hash entries in `DT_LILIUM_HASH` |
 | `DT_LILIUM_HASH`[^3]           | `0x6000000E` | `d_ptr` | Optional   | Optional[^2]  | Provides an alternative to `DT_HASH` |
 |`DT_LILIUM_REQUIRE_SUBSYSTEMSSZ`| `0x6000000F` | `d_val` | Optional   | Optional      | The total size (in bytes) of `DT_LILIUM_REQUIRE_SUBSYSTEMS` | 
 |`DT_LILIUM_REQUIRE_SUBSYSTEMS`  | `0x60000010` | `d_ptr` | Optional   | Optional      | Pointer to the `SHT_LILIUM_REQUIRE_SUBSYSTEMS` section |
 |`DT_LILIUM_REQUIRE_SUBSYSTEMSENT`| `0x60000011`| `d_val` | Optional   | Optional      | Entry size for `DT_LILIUM_REQUIRE_SUBSYSTEMS` |
 | `DT_LILIUM_LOKERNEL`           | `0x6FE00000` | N/A     | Disallowed | N/A[^4]       | Lowest dynamic tag for use by the Lilium Kernel |
-| `DT_LILIUM_KMODULES`           | `0x6FE00000` | `d_ptr` | Disallowed | Optional      | Points to the `PT_LILIUM_KMODULES` segment    |
+| `DT_LILIUM_KMODULE`            | `0x6FE00000` | `d_ptr` | Disallowed | Optional      | Points to the `PT_LILIUM_KMODULE` segment    |
 | `DT_LILIUM_KMODULESZ`          | `0x6FE00001` | `d_val` | Disallowed | Optional      | Contains the size (in bytes) of the `DT_LILIUM_KMODULES` segment |
+| `DT_LILIUM_LOKSPECIFIC`        | `0x6FEF0000` | N/A     | Disallowed | N/A[^6]        | Lowest dynamic tag available for use by the kernel (not specified in this OSABI) |
 | `DT_LILIUM_HIKERNEL`           | `0x6FEFFFFF` | N/A     | Disallowed | N/A[^4]       | Highest dynamic tag  for use by the Lilium Kernel |
 | `DT_HIOS`                      | `0x6FFFF000` | N/A     | N/A        | N/A           | Upper Bound for OS Specific dynamic tags |
 | `DT_GNU_HASH`[^3]              | `0x6FFFFEF5` | `d_ptr` | Optional   | Optional[^2]  | Defined for compatibility with GNU/LLVM Toolchains. Provides an alternative to `DT_HASH`|
@@ -121,6 +124,10 @@ Dynamic tags between `DT_LOOS` and `DT_LILIUM_LOKERNEL` obey the rule set by `DT
 [^3]: Due to inconsistencies in the constraints between `DT_LILIUM_HASH` and `DT_GNU_HASH`, these tags cannot both appear in a shared object
 
 [^4]: Dynamic tags in the range `DT_LILIUM_LOKERNEL` and `DT_LILIUM_HIKERNEL` must be ignored or treated as invalid by a userspace dynamic linkers. These are specifically used in the kernel. As kernel modules are exclusive shared objects, they cannot validly appear in an executable.
+
+[^5]: `DT_LILIUM_HASHENT` must be present if and only if `DT_LILIUM_HASH` appears. If `DT_LILIUM_HASH` is not present, `DT_LILIUM_HASHENT` is Disallowed.
+
+[^6]: Dynamic tags in the range `DT_LILIUM_LOKSPECIFIC` and `DT_LILIUM_HIKERNEL` are not defined by this ABI, except that all such tags conform to `d_un` encoding. They shall be treated like any other value in the kernel-module range by userspace loaders. Where `DT_LILIUM_KMODULE` is present, they must be ignored by a kernel that does not support the specified kernel type.
 
 ### `DT_LILIUM_REQUIRE_SUBSYSTEMS`
 
@@ -132,8 +139,8 @@ If `DT_LILIUM_REQUIRE_SUBSYSTEMS` is present, then `DT_LILIUM_REQUIRE_SUBSYSTEMS
 The `DT_LILIUM_REQUIRE_SUBSYSTEMS` tag is processed only by the runtime linker (not by the kernel), and each named subsection is attempted to be loaded before any code in the module is executed (Except pointers in the `DT_PREINITARRAY` for an executable). This includes both `DT_INIT` and pointers in the `DT_INITARRAY`.
 If loading fails, the behaviour is as follows:
 * If the error occurs while loading the executable itself or a `DT_NEEDED` entry, the process is terminated with an exception,
-* If the error occurs while loading a module via `rtld_open_object` (defined in `libusi-rtld.so`), either `rtld_open_object` returns the error code from `OpenSubsystem` (typically `MODULE_LOAD_FAILED`) or the process is terminated with an exception,
-* If the error occurs while loading a module in any other manner, the behaviour is not specified.
+* If the error occurs while loading a module via `open_dyn_module` (defined in `libusi-rtld.so`), either `open_dyn_module` returns the error code from `OpenSubsystem` (typically `MODULE_LOAD_FAILED`) or the process is terminated with an exception,
+* If the error occurs while loading a module in any other manner (including via `__rtld_load_module`), the behavior is not specified, except that no code from the module is run.
 
 Note that the `core` subsystems (`base`, `thread`, `io`, `process`, `debug`, and `kmgmt` currently) may be ignored by runtime loader if it knows to be running a kernel that supports those subsystems. Core subsystems supported by a given version kernel are always loaded.
 
